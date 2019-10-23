@@ -7,39 +7,50 @@ from time import sleep
 logging.basicConfig(filename='result.log',
                     level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
-logging.disable(logging.DEBUG)
+# logging.disable(logging.DEBUG)
 
-# Global Var dung de dung an toan cac tien trinh
-safe_stop = False
+# Khai bao log Handler de in ket qua ra ngoai man hinh
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
 
 
-def produce_log(name, ip, queue):
-    global safe_stop
+def check_safestop_queue(queue):
+    if not queue.empty():
+        if queue.get():
+            return True
+    return False
+
+
+def ping_job(name, ip, queue, safe_stop):
+    prev_status = None
 
     while True:
-        if safe_stop is True:
+        if check_safestop_queue(safe_stop) is True:
+            print('Da hoan tat kiem tra {} ({}))'.format(name, ip))
             break
         else:
-            if ping(ip, count=1).success():
-                queue.put('{0} ({1}) is UP'.format(name, ip))
-            else:
-                queue.put('{0} ({1}) is DOWN'.format(name, ip))
+            status = ping(ip, count=1).success()
+            if status != prev_status:
+                queue.put('{} ({}) is {}'.format(
+                    name, ip, 'UP' if status is True else 'DOWN'))
+                prev_status = status
+
         sleep(1)
 
 
-def print_and_log(queue):
-    global safe_stop
-
+def print_and_log(queue, safe_stop):
     while True:
-        if safe_stop is True:
+        if check_safestop_queue(safe_stop) is True:
             break
         else:
             while not queue.empty():
                 log = queue.get()
-                print(log)
                 logging.info(log)
 
-        sleep(1)
+        sleep(0.1)
 
 
 def host_list():
@@ -47,42 +58,46 @@ def host_list():
     with open('hosts.csv') as hosts_file:
         csv_reader = csv.reader(hosts_file)
 
-        name = []
-        ip = []
+        hosts = []
 
         for row in csv_reader:
-            name.append(row[0])
-            ip.append(row[1])
+            hosts.append(tuple(row))
 
-        return zip(name, ip)
+        return hosts
 
 
 def main():
-    global safe_stop
     procs = []
     logs = Queue()
+    safe_stop = Queue()
 
     for name, ip in host_list():
-        proc = Process(target=produce_log, args=(name, ip, logs,))
+        proc = Process(target=ping_job, args=(name, ip, logs, safe_stop))
         procs.append(proc)
         proc.start()
 
-    log_writer = Process(target=print_and_log, args=(logs,))
+    log_writer = Process(target=print_and_log, args=(
+        logs,
+        safe_stop,
+    ))
+    procs.append(log_writer)
     log_writer.start()
 
     while True:
-        if safe_stop is True:
-            for proc in procs:
-                proc.join()
-            log_writer.join()
-            print('Da thoat chuong trinh.')
+        stop = bool(input('Ky tu bat ky de ngung chuong trinh\n' or ''))
+        if stop:
             break
-        else:
-            sleep(1)
+        sleep(1)
+
+    for i in range(len(procs)):
+        safe_stop.put(True)
+
+    logging.info('Dang cho cac tien trinh con hoan tat ...')
+
+    for proc in procs:
+        proc.join()
+    print('Da thoat chuong trinh.')
 
 
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        safe_stop = True
+    main()
