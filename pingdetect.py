@@ -2,6 +2,7 @@ from pythonping import ping
 import logging
 from multiprocessing import Process, Queue
 from time import sleep
+from random import uniform
 
 # Khai bao thong so cho viec ghi log
 logging.basicConfig(filename='result.log',
@@ -26,13 +27,17 @@ def check_safestop_queue(queue):
 
 def ping_job(name, ip, queue, safe_stop):
     prev_status = None
+    sleep(uniform(0, 5))
 
     while True:
         if check_safestop_queue(safe_stop) is True:
             print('Da hoan tat kiem tra {} ({}))'.format(name, ip))
             break
         else:
-            status = ping(ip, count=1).success()
+            try:
+                status = ping(ip, timeout=4, count=1).success()
+            except OSError:
+                status = False
             if status != prev_status:
                 queue.put('{} ({}) is {}'.format(
                     name, ip, 'UP' if status is True else 'DOWN'))
