@@ -1,21 +1,25 @@
-from pythonping import ping
 import logging
 from multiprocessing import Process, Queue
 from time import sleep
 from random import uniform
+import subprocess
 
 # Khai bao thong so cho viec ghi log
-logging.basicConfig(filename='result.log',
-                    level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-# logging.disable(logging.DEBUG)
+logger = logging.getLogger('pingdetect')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# Khai bao log Handler de ghi ket qua vao file log
+file = logging.FileHandler('result.log')
+file.setLevel(logging.INFO)
+file.setFormatter(formatter)
+logger.addHandler(file)
 
 # Khai bao log Handler de in ket qua ra ngoai man hinh
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
+logger.addHandler(console)
 
 
 def check_safestop_queue(queue):
@@ -35,9 +39,11 @@ def ping_job(name, ip, queue, safe_stop):
             break
         else:
             try:
-                status = ping(ip, timeout=4, count=1).success()
-            except OSError:
+                subprocess.check_output(['ping', '-c', '1', ip])
+                status = True
+            except subprocess.CalledProcessError:
                 status = False
+
             if status != prev_status:
                 queue.put('{} ({}) is {}'.format(
                     name, ip, 'UP' if status is True else 'DOWN'))
@@ -53,7 +59,7 @@ def print_and_log(queue, safe_stop):
         else:
             while not queue.empty():
                 log = queue.get()
-                logging.info(log)
+                logger.info(log)
 
         sleep(0.1)
 
@@ -97,7 +103,7 @@ def main():
     for i in range(len(procs)):
         safe_stop.put(True)
 
-    logging.info('Dang cho cac tien trinh con hoan tat ...')
+    logger.info('Dang cho cac tien trinh con hoan tat ...')
 
     for proc in procs:
         proc.join()
